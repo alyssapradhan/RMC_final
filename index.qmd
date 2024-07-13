@@ -1,0 +1,561 @@
+---
+title: "WHO Malaria Report"
+author: "Alyssa Pradhan"
+format: 
+  dashboard:
+    github: https://github.com/alyssapradhan
+theme: sandstone
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+
+```{r}
+
+# Load packages
+
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(tidyverse, 
+               here,
+               sf,
+               bslib, 
+               bsicons,
+               rnaturalearth, 
+               plotly, 
+               countrycode, 
+               htmltools, 
+               reactable,
+               janitor
+               )
+
+```
+
+```{r}
+
+#Cleaning malaria incident table
+
+malaria_cases_raw <- read.csv(here("Data/cases_year.csv"))
+
+malaria_cases_raw$Country <- na_if(malaria_cases_raw$Country, "") 
+malaria_cases_raw$Country <- gsub("[0-9,]", "", malaria_cases_raw$Country)
+malaria_cases_raw <- malaria_cases_raw %>% fill(Country)
+
+col_names = c("X2010","X2011","X2012", "X2013", "X2014", "X2015", "X2016", "X2017", "X2018", "X2019", "X2020", "X2021", "X2022")
+
+malaria_cases_raw <- malaria_cases_raw %>% mutate(across(all_of(col_names), ~ as.numeric(gsub("[,*']", "", .))))
+
+malaria_cases_long <- malaria_cases_raw %>% pivot_longer(
+    cols = col_names,
+    names_to = "Year"
+)
+
+malaria_cases_long$Year <- gsub("X", "", malaria_cases_long$Year)
+
+malaria_confirmed <- malaria_cases_long %>% filter(X == "Confirmed")
+malaria_confirmed <- malaria_cases_long %>% filter(Country != "AMERICAS")
+
+# Cleaning background population
+
+pop_raw <- read.csv(here("Data/Population.csv"))
+pop_raw$Country <- na_if(pop_raw$Country, "") 
+pop_raw$Country <- gsub("[0-9,]", "", pop_raw$Country)
+pop_raw <- pop_raw %>% fill(Country)
+
+pop_raw$Population <- gsub(",", "", pop_raw$Population)
+pop_raw$Population <- as.numeric(pop_raw$Population)
+
+malaria_confirmed$Year <- as.integer(malaria_confirmed$Year)
+
+malaria_confirmed <- left_join(malaria_confirmed, pop_raw, by = c("Country" = "Country", "Year"))
+
+malaria_confirmed <- malaria_confirmed %>% mutate(
+  per_10k = (value/Population) * 10000
+)
+
+# Match with country ISO3 code
+
+countries <- rnaturalearth::ne_countries()
+
+to_replace <- c("Congo", "Eswatini", "Côte d'Ivoire", "Bolivia (Plurinational State of)", "Venezuela (Bolivarian Republic of)", "Iran (Islamic Republic of)", "Democratic People's Republic of Korea", "Timor-Leste", "Lao People's Democratic Republic", "Republic of Korea", "Viet Nam")
+
+replacements <- c(
+  "Congo" = "Democratic Republic of the Congo", 
+  "Eswatini" = "eSwatini",
+  "Côte d'Ivoire" = "Ivory Coast", 
+  "Bolivia (Plurinational State of)" = "Bolivia", 
+  "Venezuela (Bolivarian Republic of)" = "Venezuela", 
+  "Iran (Islamic Republic of)" = "Iran", 
+  "Democratic People's Republic of Korea" = "North Korea", 
+  "Timor-Leste" = "East Timor", 
+  "Lao People's Democratic Republic" = "Laos", 
+  "Republic of Korea" = "South Korea", 
+  "Viet Nam" = "Vietnam") 
+
+malaria_confirmed <- malaria_confirmed %>% 
+  mutate(country = case_when(
+    Country == "Congo" ~ "Democratic Republic of the Congo",
+    Country == "Democratic Republic of the Democratic Republic of the Congo" ~ "Democratic Republic of the Congo",
+    Country == "Eswatini" ~ "eSwatini",
+    Country == "Côte d'Ivoire" ~ "Ivory Coast", 
+    Country == "Bolivia (Plurinational State of)" ~ "Bolivia", 
+    Country == "Venezuela (Bolivarian Republic of)" ~ "Venezuela", 
+    Country == "Iran (Islamic Republic of)" ~ "Iran", 
+    Country == "Democratic People's Republic of Korea" ~ "North Korea",
+    Country == "Timor-Leste" ~ "East Timor", 
+    Country == "Lao People's Democratic Republic" ~ "Laos", 
+    Country == "Republic of Korea" ~ "South Korea", 
+    Country == "Viet Nam" ~ "Vietnam",
+    TRUE ~ Country  
+  ))
+
+malaria_confirmed <- malaria_confirmed %>%  filter(X == "Confirmed")
+
+malaria_country <- full_join(malaria_confirmed, countries, by = c("country" = "admin"))
+
+malaria_country_22 <- malaria_confirmed %>% filter(Year == "2022")
+malaria_country_22 <- left_join(malaria_country_22,countries, by = c("country" = "admin"))
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+total_cases <- sum(malaria_confirmed$value, na.rm=TRUE)
+
+
+```
+
+```{r}
+
+# Uploading species data 
+species_raw <- read.csv(here("Data/Species.csv"))
+
+species_raw$Country <- na_if(species_raw$Country, "") 
+species_raw$Country <- gsub("[0-9,*]", "", species_raw$Country)
+species_raw <- species_raw %>% fill(Country)
+
+col_names = c("X2010","X2011","X2012", "X2013", "X2014", "X2015", "X2016", "X2017", "X2018", "X2019", "X2020", "X2021", "X2022")
+
+species_raw <- species_raw %>% mutate(across(all_of(col_names), ~ as.numeric(gsub("[,*']", "", .))))
+
+species_long <- species_raw %>% pivot_longer(
+    cols = col_names,
+    names_to = "Year"
+)
+
+species_long$Year <- gsub("X", "", species_long$Year)
+
+species_long$Year <- as.integer(species_long$Year)
+species_long <- left_join(species_long, pop_raw, by = c("Country" = "Country", "Year"))
+
+species_long <- species_long %>% mutate(
+  per_10k = (value/Population) * 10000
+)
+
+species_long <- species_long %>% 
+  mutate(country = case_when(
+    Country == "Congo" ~ "Democratic Republic of the Congo",
+    Country == "Democratic Republic of the Democratic Republic of the Congo" ~ "Democratic Republic of the Congo",
+    Country == "Eswatini" ~ "eSwatini",
+    Country == "Côte d'Ivoire" ~ "Ivory Coast", 
+    Country == "Bolivia (Plurinational State of)" ~ "Bolivia", 
+    Country == "Venezuela (Bolivarian Republic of)" ~ "Venezuela", 
+    Country == "Iran (Islamic Republic of)" ~ "Iran", 
+    Country == "Democratic People's Republic of Korea" ~ "North Korea",
+    Country == "Timor-Leste" ~ "East Timor", 
+    Country == "Lao People's Democratic Republic" ~ "Laos", 
+    Country == "Republic of Korea" ~ "South Korea", 
+    Country == "Viet Nam" ~ "Vietnam",
+    TRUE ~ Country  
+  ))
+
+species_long <- full_join(species_long, countries, by = c("country" = "admin"))
+
+vivax <- species_long %>% filter(Species == "Total P. vivax")
+falcip <- species_long %>% filter(Species == "Total P. falciparum")
+
+
+
+```
+
+```{r}
+
+# Uploading diagnosis and treatment data 
+
+prevention_raw <- read.csv(here("Data/Prevention.csv"))
+
+prevention_raw$Country <- na_if(prevention_raw$Country, "") 
+prevention_raw$Country <- gsub("[0-9,*]", "", prevention_raw$Country)
+prevention_raw <- prevention_raw %>% fill(Country)
+
+col_names_2 = c("Num_RDT", "No_cases_treated")
+
+prevention_raw <- prevention_raw %>% mutate(across(all_of(col_names_2), ~ as.numeric(gsub("[-,*']", "", .))))
+
+prevention_raw$Year <- as.integer(prevention_raw$Year)
+prevention_raw <- left_join(prevention_raw, pop_raw, by = c("Country" = "Country", "Year"))
+
+prevention_raw <- prevention_raw %>% mutate(
+  RDT_per_10k = (Num_RDT/Population) * 10000
+)
+
+prevention_raw <- prevention_raw %>% mutate(
+  treat_per_10k = (No_cases_treated/Population) * 10000
+)
+
+prevention_raw <- prevention_raw %>% 
+  mutate(country = case_when(
+    Country == "Congo" ~ "Democratic Republic of the Congo",
+    Country == "Democratic Republic of the Democratic Republic of the Congo" ~ "Democratic Republic of the Congo",
+    Country == "Eswatini" ~ "eSwatini",
+    Country == "Côte d'Ivoire" ~ "Ivory Coast", 
+    Country == "Bolivia (Plurinational State of)" ~ "Bolivia", 
+    Country == "Venezuela (Bolivarian Republic of)" ~ "Venezuela", 
+    Country == "Iran (Islamic Republic of)" ~ "Iran", 
+    Country == "Democratic People's Republic of Korea" ~ "North Korea",
+    Country == "Timor-Leste" ~ "East Timor", 
+    Country == "Lao People's Democratic Republic" ~ "Laos", 
+    Country == "Republic of Korea" ~ "South Korea", 
+    Country == "Viet Nam" ~ "Vietnam",
+    TRUE ~ Country  
+  ))
+
+prevention_raw <- full_join(prevention_raw, countries, by = c("country" = "admin"))
+
+prevention_raw$Year <- as.character(prevention_raw$Year)
+
+prevention_22 <- prevention_raw %>% filter(Year == "2022")
+prevention_22$Num_RDT <- round(prevention_22$Num_RDT)
+prevention_22$treat_per_10k <- round(prevention_22$treat_per_10k)
+
+total_treated <- sum(prevention_22$No_cases_treated, na.rm=TRUE)
+
+```
+
+
+
+```{r Plot Prevalence of malaria by country 2022}
+
+prevalence_map_plot_22 <- ggplot(malaria_country_22) +
+  geom_sf(aes(fill = per_10k, geometry = geometry)) + 
+  geom_sf(data = world, fill = NA, color = "lightgray") +
+  theme_minimal() +
+  labs(fill = "Number of Cases") + 
+  ggtitle(label = "Malaria incidence by country") +
+  labs(fill = "Confirmed cases") +
+  scale_fill_continuous(low = "lemonchiffon", high = "firebrick4", na.value = NA)
+  # theme(legend.position = "none")
+
+
+```
+
+# Home
+
+## Buttons {height=30%}
+
+###
+```{r}
+# Total Malaria Cases 2022
+
+value_box(
+  title = "Total Malaria Cases 2022",
+  value = total_cases,
+  showcase = bsicons::bs_icon("virus"),
+  theme = value_box_theme(bg = "#E74C3C"),
+  p(paste0("(", total_cases, ")"))
+)
+
+```
+
+###
+```{r}
+# Country with highest prevalnce
+
+value_box(
+  title = "Highest Prevalence 2022",
+  showcase = bsicons::bs_icon("arrow-up-right"),
+  theme = value_box_theme(bg = "#FF8A65"),
+  p(paste0("Burundi"))
+)
+
+```
+
+###
+```{r}
+# Total treated cases
+
+value_box(
+  title = "Total Cases Treated",
+  value = total_treated,
+  showcase = bsicons::bs_icon("capsule-pill"),
+  theme = value_box_theme(bg = "#7B241C"),
+  p(paste0("(", total_treated, ")"))
+)
+
+```
+
+
+## Row 2
+
+### Graph {width=33%}
+```{r}
+
+# Top 10 countries for malaria prevalence 2022
+
+top <- malaria_country_22 %>% 
+  arrange(desc(per_10k)) %>% 
+  slice(1:10) %>% 
+  mutate(tooltip_label = paste(Country, 
+                               per_10k, 
+                               sep = ": ")) %>% 
+  ggplot(aes(y = reorder(Country, per_10k), 
+             x = per_10k, 
+             fill = per_10k, 
+             text = tooltip_label)) + 
+  geom_col() + 
+  geom_text(aes(label = per_10k), 
+            nudge_x = 2, 
+            color = "gray26"
+            ) + 
+  ggtitle("Countries with highest malaria prevalence 2022") +
+  labs(x = "Cases per 10 000",
+       y = " ") + 
+  scale_fill_continuous(low = "lemonchiffon", high = "firebrick4", na.value = NA) +
+  theme(legend.position = "none")
+  
+top_ggplotly <- 
+  ggplotly(top, tooltip = "text")
+
+top_ggplotly
+
+
+```
+
+
+### Graph {width=66%}
+
+```{r}
+
+# Prevalence of malaria by country over time
+
+malaria_country %>% plot_geo() %>% 
+  add_trace(
+    z = ~round(per_10k),
+    locations = ~iso_a3,
+    text = ~country,
+    frame = ~Year, colors = "OrRd"
+  ) %>% 
+  layout(
+    title = 'Prevalence of malaria by year (cases per 10, 000)')
+
+```
+
+# Species analysis
+
+## Row 1 {height=70%}
+
+### Column 1 {width=50%}
+
+```{r}
+
+falcip_plot3 <- falcip %>% 
+    plot_geo() %>%
+    add_trace(
+      z = ~round(per_10k),
+      locations = ~iso_a3,
+      text = ~Country,
+      frame = ~Year,
+      color = ~per_10k,
+      colors = "OrRd",
+      showlegend = FALSE
+    ) %>%
+    layout(
+      title = 'Cases of P. falciparum per 10,000',
+      legend = list(title = list(text = 'Cases per 10,000')),
+      geo = list(
+        showframe = FALSE,
+        showcoastlines = TRUE
+      )
+    )
+
+falcip_plot3
+
+```
+
+### Column 2 {width=50%}
+
+```{r}
+
+# Define a function to create a chloropleth plot for a given species
+
+vivax_plot2 <- vivax %>%
+    plot_geo() %>%
+    add_trace(
+      z = ~round(per_10k),
+      locations = ~iso_a3,
+      text = ~Country,
+      frame = ~Year,
+      color = ~per_10k,
+      colors = "OrRd",
+      showlegend = FALSE
+    ) %>%
+    layout(
+      title = 'Cases of P. vivax per 10,000',
+      legend = list(title = list(text = 'Cases per 10,000')),
+      geo = list(
+        showframe = FALSE,
+        showcoastlines = TRUE
+      )
+    )
+vivax_plot2
+
+
+```
+
+
+## Row 2 {height=20%}
+
+Malaria is caused by the *Plasmodium* parasite, transmitted by mosquitoes, which infects red blood cells. Several species of *Plasmodium* exist, and cause malaria with varying severity. *Plasmodium falciparum* causes the most severe disease as the parasite is able to infect red blood cells of any age. These graphs demonstrate the prevalence of two species, *Plasmodium vivax* and *Plasmodium falciparum*, over time throughout the world.
+
+# Management
+
+## Row 1 {height= 60%}
+
+### Column 1 {width=50%}
+
+```{r}
+
+interactive_plot <- plot_ly(prevention_raw, x = ~Year, y = ~Num_RDT, 
+                            color = ~Country, 
+                            type = 'scatter', 
+                            mode = 'lines+markers',
+                            line = list(simplify = FALSE),
+                            marker = list(size = 10),
+                            colors = "OrRd") %>% 
+  layout(
+    title = "Annual RDT Numbers by Country",
+    xaxis = list(title = "Year"),
+    yaxis = list(title = "Number of RDTs"),
+    showlegend = FALSE
+  )
+
+interactive_plot
+```
+
+### Column 2 {width=50%}
+
+```{r}
+
+top2 <- prevention_22 %>% 
+  arrange(desc(treat_per_10k)) %>% 
+  slice(1:10) %>% 
+  mutate(tooltip_label = paste(Country, 
+                               treat_per_10k, 
+                               sep = ": ")) %>% 
+  ggplot(aes(y = reorder(Country, treat_per_10k), 
+             x = treat_per_10k, 
+             fill = treat_per_10k, 
+             text = tooltip_label)) + 
+  geom_col() + 
+  geom_text(aes(label = treat_per_10k), 
+            nudge_x = 2, 
+            color = "gray26"
+            ) + 
+  ggtitle("Number of treated cases (per 10,000) in 2022") +
+  labs(x = "Cases per 10 000",
+       y = " ") + 
+  scale_fill_continuous(low = "lemonchiffon", high = "firebrick4", na.value = NA) +
+  theme(legend.position = "none")
+  
+top2_ggplotly <- 
+  ggplotly(top, tooltip = "text")
+
+top2_ggplotly
+
+```
+
+## Row 2 {height=30%}
+
+The gold standard diagnostic test for malaria is thick and thin blood film. However, this method requires access to a laboratory, microscope with electricity and diagnostic expertise which limits their use in a resource constrained setting. An alternative diagnostic method is a rapid diagnostic test (RDT), which can be done with a drop of blood from finger prick. The chart above (left) demonstrates how many RDTs were distributed per country by year, enabling easier diagnosis of malaria.
+
+The figure on the right demonstrates the top 10 countries in which malaria was treated, per 10,000 population. This mirrors the rates of diagnosis.
+
+# About
+
+## Row
+
+### Column 1 {width=70%}
+
+The data for these data visualisations is from the WHO World malaria report 2023.
+
+Each year, WHO’s World malaria report provides a comprehensive and up-to-date assessment of trends in malaria control and elimination across the globe. This year’s report includes, for the first time, a dedicated chapter focused on the intersection between climate change and malaria. 
+
+As described in the report, climate change is one of many threats to the global response to malaria. Millions of people continue to miss out on the services they need to prevent, detect, and treat the disease. Conflict and humanitarian crises, resource constraints and biological challenges such as drug and insecticide resistance also continue to hamper progress.
+
+Taken together, these threats are undermining gains in the global fight against malaria. In 2022, the global tally of malaria cases reached 249 million – well above the estimated number of cases before the COVID-19 pandemic, and an increase of five million over 2021. 
+
+### Column 3 {width=30%}
+
+Learn more about the WHO World malaria report 2023 <https://www.who.int/teams/global-malaria-programme/reports/world-malaria-report-2023>
+
+# Download Data
+
+The data used in this dashboard is shown below and can be downloaded as a CSV. 
+
+## {.tabset}
+
+### Cases
+```{r Cases}
+
+htmltools::browsable(
+  tagList(
+    reactable(
+      malaria_confirmed, defaultPageSize = 5,
+      elementId = "malaria-table",
+      searchable = T,
+      filterable = T),
+
+tags$button("Download as CSV",
+            onclick = "Reactable.downloadDataCSV('malaria-table')")
+      
+    )
+  )
+
+```
+
+### Species 
+```{r}
+
+htmltools::browsable(
+  tagList(
+    reactable(
+      species_long, defaultPageSize = 5,
+      elementId = "species-table",
+      searchable = T,
+      filterable = T),
+
+tags$button("Download as CSV",
+            onclick = "Reactable.downloadDataCSV('species-table')")
+      
+    )
+  )
+
+```
+
+### Dx
+```{r}
+
+htmltools::browsable(
+  tagList(
+    reactable(
+      prevention_raw, defaultPageSize = 5,
+      elementId = "dx-table",
+      searchable = T,
+      filterable = T),
+
+tags$button("Download as CSV",
+            onclick = "Reactable.downloadDataCSV('dx-table')")
+      
+    )
+  )
+
+```

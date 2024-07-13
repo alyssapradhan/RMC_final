@@ -6,4 +6,4 @@ The initial component of my code is concerned with cleaning this dataset and joi
 
 The remainder of the file is the visualisation of the data with interactive plots using plotly. 
 
-The dashboard can be found at <https://alyssapradhan.github.io/Final_RMC/>
+The dashboard can be found at <[https://alyssapradhan.github.io/Final_RMC/](https://alyssapradhan.github.io/RMC_final/)>
